@@ -189,9 +189,9 @@ UnitOfWork.getExtraUpdates(): Set<[AnyEntity, string, (AnyEntity | Reference<Any
 
 ### Using onFlush event
 
-In following example we have 2 entities: `FooBar` and `FooBaz`, connected via M:1 relation. Our subscriber will automatically create new `FooBaz` entity and connect it to the `FooBar` when we detect it in the change sets.
+In the following example there are 2 entities: `FooBar` and `FooBaz`, connected via M:1 relation. The subscriber will automatically create new `FooBaz` entity and connect it to the `FooBar` when it detects it in the change sets.
 
-We first use `uow.getChangeSets()` method to look up the change set of entity we are interested in. After we create the `FooBaz` instance and link it with `FooBar`, we need to do two things:
+First use `uow.getChangeSets()` method to look up the change set of entity you are interested in. After you create the `FooBaz` instance and link it with `FooBar`, you need to do two things:
 
 1. Call `uow.computeChangeSet(baz)` to compute the change set of newly created `FooBaz` entity
 2. Call `uow.recomputeSingleChangeSet(cs.entity)` to recalculate the existing change set of the `FooBar` entity.

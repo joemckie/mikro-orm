@@ -5,7 +5,7 @@ title: Defining Entities via EntitySchema
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-With `EntitySchema` helper we define the schema programmatically.
+With `EntitySchema` helper you define the schema programmatically.
 
 ```ts title="./entities/Book.ts"
 export interface Book extends CustomBaseEntity {
@@ -201,7 +201,7 @@ export const Book = defineEntity({
 export interface IBook extends InferEntity<typeof Book> {}
 ```
 
-`defineEntity.properties` provides all [MikroORM built-in types](./custom-types#types-provided-by-mikroorm). To use [custom types](./custom-types), we can also use `p.type()`.
+`defineEntity.properties` provides all [MikroORM built-in types](./custom-types#types-provided-by-mikroorm). To use [custom types](./custom-types), you can also use `p.type()`.
 
 ```ts
 const p = defineEntity.properties;

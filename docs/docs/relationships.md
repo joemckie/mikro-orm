@@ -13,7 +13,7 @@ There are 4 types of entity relationships in MikroORM:
 - OneToOne
 - ManyToMany
 
-Relations can be unidirectional and bidirectional. Unidirectional are defined only on one side (the owning side). Bidirectional are defined on both sides, while one is owning side (where references are store), marked by `inversedBy` attribute pointing to the inverse side. On the inversed side we define it with `mappedBy` attribute pointing back to the owner:
+Relations can be unidirectional and bidirectional. Unidirectional are defined only on one side (the owning side). Bidirectional are defined on both sides, while one is owning side (where references are store), marked by `inversedBy` attribute pointing to the inverse side. On the inversed side you define it with `mappedBy` attribute pointing back to the owner:
 
 > When modeling bidirectional relationship, you can also omit the `inversedBy` attribute, defining `mappedBy` on the inverse side is enough as it will be auto-wired.
 
