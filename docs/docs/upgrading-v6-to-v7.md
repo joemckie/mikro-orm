@@ -126,6 +126,49 @@ Thanks to the switch to SWC this is no longer needed, use the standard `mikro-or
 
 Use `qb.execute()` or `qb.getResult()` instead of awaiting it directly.
 
+## Improved QueryBuilder type safety
+
+The QueryBuilder now provides better type safety for `select`, `orderBy`, `groupBy`, and other methods. When you use method chaining or reassign the QueryBuilder after joins, TypeScript can track the joined aliases and provide autocomplete for aliased properties.
+
+### Aliased properties in `orderBy`
+
+After joining a relation, you can now use aliased properties in `orderBy` with proper type checking:
+
+```ts
+const qb = em.createQueryBuilder(Publisher, 'p')
+  .leftJoin('p.books', 'b')
+  .orderBy({ 'b.title': 'asc' }); // 'b.title' is now recognized
+```
+
+### Method chaining for type tracking
+
+To get the full benefit of type tracking, use method chaining or reassign the QueryBuilder variable:
+
+```ts
+// Method chaining - types are tracked
+const results = await em.createQueryBuilder(Publisher, 'p')
+  .leftJoinAndSelect('p.books', 'b')
+  .leftJoinAndSelect('b.author', 'a')
+  .orderBy({ 'a.name': 'asc' })
+  .getResult();
+
+// Or reassign the variable
+let qb = em.createQueryBuilder(Publisher, 'p');
+qb = qb.leftJoinAndSelect('p.books', 'b');
+qb = qb.leftJoinAndSelect('b.author', 'a');
+```
+
+### Escape hatch with `raw()`
+
+For dynamic or computed expressions that can't be statically typed, use `raw()`:
+
+```ts
+import { raw } from '@mikro-orm/sql';
+
+qb.orderBy({ [raw('COALESCE(name, title)')]: 'asc' });
+qb.select(raw('COUNT(*) as count'));
+```
+
 ## Default loading strategy is `balanced`
 
 This strategy should provide a good compromise between query and hydration performance. It uses joins for to-one relations, while issuing separate queries for to-many relations.

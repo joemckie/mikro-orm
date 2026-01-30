@@ -377,7 +377,7 @@ describe('embedded entities in postgres', () => {
   test('partial loading 2', async () => {
     const mock = mockLogger(orm, ['query']);
 
-    await orm.em.fork().qb(User).select('profile1.identity.email').where({ profile1: { identity: { email: 'foo@bar.baz' } } }).execute();
+    await orm.em.fork().qb(User).select('profile1.identity.email' as any).where({ profile1: { identity: { email: 'foo@bar.baz' } } }).execute();
     expect(mock.mock.calls[0][0]).toMatch('select "u0"."profile1_identity_email" from "user" as "u0" where "u0"."profile1_identity_email" = ?');
 
     await orm.em.fork().findOne(User, { profile1: { identity: { email: 'foo@bar.baz' } } }, { fields: ['profile1.identity.email'] });
@@ -391,7 +391,7 @@ describe('embedded entities in postgres', () => {
 
     mock.mockReset();
 
-    await orm.em.fork().qb(User).select('profile2.identity.email').where({ profile2: { identity: { email: 'foo@bar.baz' } } }).execute(); // object embedded prop does not support nested partial loading
+    await orm.em.fork().qb(User).select('profile2.identity.email' as any).where({ profile2: { identity: { email: 'foo@bar.baz' } } }).execute(); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[0][0]).toMatch(`select "u0"."profile2" from "user" as "u0" where "u0"."profile2"->'identity'->>'email' = ?`);
 
     await orm.em.fork().findOne(User, { profile2: { identity: { email: 'foo@bar.baz' } } }, { fields: ['profile2.identity.email'] }); // object embedded prop does not support nested partial loading
@@ -405,13 +405,13 @@ describe('embedded entities in postgres', () => {
 
     mock.mockReset();
 
-    await orm.em.fork().qb(User).select('profile1.identity.links.url').where({ profile1: { identity: { links: { url: 'foo@bar.baz' } } } }).execute(); // object embedded prop does not support nested partial loading
+    await orm.em.fork().qb(User).select('profile1.identity.links.url' as any).where({ profile1: { identity: { links: { url: 'foo@bar.baz' } } } }).execute(); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[0][0]).toMatch(`select "u0"."profile1_identity_links" from "user" as "u0" where "u0"."profile1_identity_links"->>'url' = ?`);
 
     await orm.em.fork().findOne(User, { profile1: { identity: { links: { url: 'foo@bar.baz' } } } }, { fields: ['profile1.identity.links.url'] }); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[1][0]).toMatch(`select "u0"."id", "u0"."profile1_identity_links" from "user" as "u0" where "u0"."profile1_identity_links"->>'url' = ? limit ?`);
 
-    await orm.em.fork().qb(User).select('profile1_identity_links').where({ profile1: { identity: { links: { url: 'foo@bar.baz' } } } }).execute();
+    await orm.em.fork().qb(User).select('profile1_identity_links' as any).where({ profile1: { identity: { links: { url: 'foo@bar.baz' } } } }).execute();
     expect(mock.mock.calls[2][0]).toMatch(`select "u0"."profile1_identity_links" from "user" as "u0" where "u0"."profile1_identity_links"->>'url' = ?`);
 
     await orm.em.fork().findOne(User, { profile1: { identity: { links: { url: 'foo@bar.baz' } } } }, { fields: ['profile1.identity.links'] });
@@ -419,13 +419,13 @@ describe('embedded entities in postgres', () => {
 
     mock.mockReset();
 
-    await orm.em.fork().qb(User).select('profile2.identity.links.url').where({ profile2: { identity: { links: { url: 'foo@bar.baz' } } } }).execute(); // object embedded prop does not support nested partial loading
+    await orm.em.fork().qb(User).select('profile2.identity.links.url' as any).where({ profile2: { identity: { links: { url: 'foo@bar.baz' } } } }).execute(); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[0][0]).toMatch(`select "u0"."profile2" from "user" as "u0" where "u0"."profile2"->'identity'->'links'->>'url' = ?`);
 
     await orm.em.fork().findOne(User, { profile2: { identity: { links: { url: 'foo@bar.baz' } } } }, { fields: ['profile2.identity.links.url'] }); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[1][0]).toMatch(`select "u0"."id", "u0"."profile2" from "user" as "u0" where "u0"."profile2"->'identity'->'links'->>'url' = ? limit ?`);
 
-    await orm.em.fork().qb(User).select('profile2.identity.links.url').where({ profile2: { identity: { links: { url: 'foo@bar.baz' } } } }).execute();
+    await orm.em.fork().qb(User).select('profile2.identity.links.url' as any).where({ profile2: { identity: { links: { url: 'foo@bar.baz' } } } }).execute();
     expect(mock.mock.calls[2][0]).toMatch(`select "u0"."profile2" from "user" as "u0" where "u0"."profile2"->'identity'->'links'->>'url' = ?`);
 
     await orm.em.fork().findOne(User, { profile2: { identity: { links: { url: 'foo@bar.baz' } } } }, { fields: ['profile2.identity.links'] });

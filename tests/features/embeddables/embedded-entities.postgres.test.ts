@@ -334,7 +334,7 @@ describe('embedded entities in postgresql', () => {
   test('partial loading 2', async () => {
     const mock = mockLogger(orm, ['query']);
 
-    await orm.em.fork().qb(User).select('address1.city').where({ address1: { city: 'London 1' } }).execute();
+    await orm.em.fork().qb(User).select('address1.city' as any).where({ address1: { city: 'London 1' } }).execute();
     expect(mock.mock.calls[0][0]).toMatch('select "u0"."address1_city" from "user" as "u0" where "u0"."address1_city" = ?');
 
     await orm.em.fork().findOne(User, { address1: { city: 'London 1' } }, { fields: ['address1.city'] });
@@ -348,7 +348,7 @@ describe('embedded entities in postgresql', () => {
 
     mock.mockReset();
 
-    await orm.em.fork().qb(User).select('address4.city').where({ address4: { city: 'London 1' } }).execute(); // object embedded prop does not support nested partial loading
+    await orm.em.fork().qb(User).select('address4.city' as any).where({ address4: { city: 'London 1' } }).execute(); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[0][0]).toMatch(`select "u0"."address4" from "user" as "u0" where "u0"."address4"->>'city' = ?`);
 
     await orm.em.fork().findOne(User, { address4: { city: 'London 1' } }, { fields: ['address4.city'] }); // object embedded prop does not support nested partial loading
@@ -362,7 +362,7 @@ describe('embedded entities in postgresql', () => {
 
     mock.mockReset();
 
-    await orm.em.fork().qb(User).select('addresses.city').where({ addresses: { city: 'London 1' } }).execute(); // object embedded prop does not support nested partial loading
+    await orm.em.fork().qb(User).select('addresses.city' as any).where({ addresses: { city: 'London 1' } }).execute(); // object embedded prop does not support nested partial loading
     expect(mock.mock.calls[0][0]).toMatch(`select "u0"."addresses" from "user" as "u0" where "u0"."addresses"->>'city' = ?`);
 
     await orm.em.fork().findOne(User, { addresses: { city: 'London 1' } }, { fields: ['addresses.city'] }); // object embedded prop does not support nested partial loading
@@ -375,7 +375,7 @@ describe('embedded entities in postgresql', () => {
     expect(mock.mock.calls[3][0]).toMatch(`select "u0"."id", "u0"."addresses" from "user" as "u0" where "u0"."addresses"->>'city' = ? limit ?`);
 
     const user = createUser();
-    await orm.em.fork().qb(User).insert(user).onConflict(['email']).merge(['email', 'address1.city']).execute();
+    await orm.em.fork().qb(User).insert(user).onConflict(['email']).merge(['email', 'address1.city'] as any).execute();
     expect(mock.mock.calls[4][0]).toMatch(`insert into "user" ("email", "address1_street", "address1_number", "address1_postal_code", "address1_city", "address1_country", "addr_street", "addr_city", "addr_country", "street", "number", "postal_code", "city", "country", "address4", "addresses") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict ("email") do update set "email" = excluded."email", "address1_city" = excluded."address1_city" returning "id"`);
   });
 
@@ -451,7 +451,7 @@ describe('embedded entities in postgresql', () => {
 
     const query = orm.em.qb(Foo, 'f')
       .leftJoin('f.user', 'u')
-      .select(['f.*', 'u.street']);
+      .select(['f.*', 'u.street'] as any);
     expect(query.getQuery()).toBe('select "f".*, "u"."street" from "foo" as "f" left join "user" as "u" on "f"."user_id" = "u"."id"');
     await expect(query.getResult()).resolves.toEqual([
       {

@@ -8,6 +8,7 @@ import {
   type EntityMetadata,
   type EntityName,
   type EntityProperty,
+  type FilterQuery,
   type FlatQueryOrderMap,
   type FormulaTable,
   inspect,
@@ -15,9 +16,8 @@ import {
   LockMode,
   type MetadataStorage,
   OptimisticLockError,
-  type QBFilterQuery,
-  type QBQueryOrderMap,
   QueryOperator,
+  type QueryOrderMap,
   QueryOrderNumeric,
   raw,
   Raw,
@@ -27,7 +27,7 @@ import {
   ValidationError,
 } from '@mikro-orm/core';
 import { JoinType, QueryType } from './enums.js';
-import type { Field, JoinOptions } from '../typings.js';
+import type { InternalField, JoinOptions } from '../typings.js';
 import type { AbstractSqlDriver } from '../AbstractSqlDriver.js';
 import type { AbstractSqlPlatform } from '../AbstractSqlPlatform.js';
 import { NativeQueryBuilder } from './NativeQueryBuilder.js';
@@ -687,7 +687,7 @@ export class QueryBuilderHelper {
     return replacement;
   }
 
-  validateQueryOrder<T>(orderBy: QBQueryOrderMap<T>): void {
+  validateQueryOrder<T>(orderBy: QueryOrderMap<T>): void {
     const strKeys: string[] = [];
     const rawKeys: Raw[] = [];
 
@@ -768,7 +768,7 @@ export class QueryBuilderHelper {
     return ret;
   }
 
-  finalize(type: QueryType, qb: NativeQueryBuilder, meta?: EntityMetadata, data?: Dictionary, returning?: Field<any>[]): void {
+  finalize(type: QueryType, qb: NativeQueryBuilder, meta?: EntityMetadata, data?: Dictionary, returning?: InternalField<any>[]): void {
     const usesReturningStatement = this.platform.usesReturningStatement() || this.platform.usesOutputStatement();
 
     if (!meta || !data || !usesReturningStatement) {
@@ -992,7 +992,7 @@ export class QueryBuilderHelper {
     return [QueryType.SELECT, QueryType.COUNT].includes(type);
   }
 
-  processOnConflictCondition(cond: QBFilterQuery, schema?: string): QBFilterQuery {
+  processOnConflictCondition(cond: FilterQuery<any>, schema?: string): FilterQuery<any> {
     const meta = this.metadata.get(this.entityName);
     const tableName = meta.tableName;
 
@@ -1028,6 +1028,6 @@ export interface Alias<T> {
 export interface OnConflictClause<T> {
   fields: string[] | Raw;
   ignore?: boolean;
-  merge?: EntityData<T> | Field<T>[];
-  where?: QBFilterQuery<T>;
+  merge?: EntityData<T> | InternalField<T>[];
+  where?: FilterQuery<T>;
 }

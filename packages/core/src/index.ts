@@ -5,7 +5,7 @@
 export { EntityMetadata, PrimaryKeyProp, EntityRepositoryType, OptionalProps, EagerProps, HiddenProps, Config } from './typings.js';
 export type {
   Constructor, ConnectionType, Dictionary, Primary, IPrimaryKey, ObjectQuery, FilterQuery, IWrappedEntity, EntityName, EntityData, Highlighter, MaybePromise,
-  AnyEntity, EntityClass, EntityProperty, QBFilterQuery, PopulateOptions, Populate, Loaded, New, LoadedReference, LoadedCollection, IMigrator, IMigrationGenerator, MigratorEvent,
+  AnyEntity, EntityClass, EntityProperty, PopulateOptions, Populate, Loaded, New, LoadedReference, LoadedCollection, IMigrator, IMigrationGenerator, MigratorEvent,
   GetRepository, MigrationObject, DeepPartial, PrimaryProperty, Cast, IsUnknown, EntityDictionary, EntityDTO, MigrationDiff, GenerateOptions, FilterObject,
   IEntityGenerator, ISeedManager, RequiredEntityData, CheckCallback, IndexCallback, FormulaCallback, FormulaTable, SimpleColumnMeta, Rel, Ref, ScalarRef, EntityRef, ISchemaGenerator,
   UmzugMigration, MigrateOptions, MigrationResult, MigrationRow, EntityKey, EntityValue, EntityDataValue, FilterKey, EntityType, FromEntityType, Selected, IsSubset, NoInfer,
