@@ -332,6 +332,17 @@ export abstract class AbstractSqlDriver<
   }
 
   override mapResult<T extends object>(result: EntityData<T>, meta: EntityMetadata<T>, populate: PopulateOptions<T>[] = [], qb?: QueryBuilder<T, any, any, any>, map: Dictionary = {}): EntityData<T> | null {
+    // For TPT inheritance, map aliased parent table columns back to their field names
+    if (qb && meta.inheritanceType === 'tpt' && meta.tptParent) {
+      this.mapTPTColumns(result, meta, qb);
+    }
+
+    // For TPT polymorphic queries (querying a base class), map child table fields
+    if (qb && meta.inheritanceType === 'tpt' && meta.allTPTDescendants?.length) {
+      const mainAlias = (qb as any).mainAlias?.aliasName ?? 'e0';
+      this.mapTPTChildFields(result, meta, mainAlias, qb, result);
+    }
+
     const ret = super.mapResult(result, meta);
 
     /* v8 ignore next */
@@ -345,6 +356,43 @@ export abstract class AbstractSqlDriver<
     }
 
     return ret;
+  }
+
+  /**
+   * Maps aliased columns from TPT parent tables back to their original field names.
+   * TPT parent columns are selected with aliases like `parent_alias__column_name`,
+   * and need to be renamed back to `column_name` for the result mapper to work.
+   */
+  private mapTPTColumns<T extends object>(result: EntityData<T>, meta: EntityMetadata<T>, qb: QueryBuilder<T, any, any, any>): void {
+    const tptAliases = (qb as any)._tptAlias as Dictionary<string>;
+
+    // Walk up the TPT hierarchy
+    let parentMeta: EntityMetadata | undefined = meta.tptParent;
+
+    while (parentMeta) {
+      const parentAlias = tptAliases[parentMeta.className];
+
+      if (parentAlias) {
+        // Rename columns from this parent table
+        for (const prop of parentMeta.ownProps ?? parentMeta.props) {
+          if (!prop.fieldNames) {
+            continue;
+          }
+
+          for (const fieldName of prop.fieldNames) {
+            const aliasedKey = `${parentAlias}__${fieldName}` as EntityKey<T>;
+
+            if (aliasedKey in result) {
+              // Copy the value to the unaliased field name and remove the aliased key
+              (result as Dictionary)[fieldName] = result[aliasedKey];
+              delete result[aliasedKey];
+            }
+          }
+        }
+      }
+
+      parentMeta = parentMeta.tptParent;
+    }
   }
 
   private mapJoinedProps<T extends object>(result: EntityData<T>, meta: EntityMetadata<T>, populate: PopulateOptions<T>[], qb: QueryBuilder<T, any, any, any>, root: EntityData<T>, map: Dictionary, parentJoinPath?: string) {
@@ -483,6 +531,9 @@ export abstract class AbstractSqlDriver<
         }
       }
 
+      // Handle TPT polymorphic child fields - map fields from child table aliases
+      this.mapTPTChildFields(relationPojo, meta2, relationAlias, qb, root);
+
       // properties can be mapped to multiple places, e.g. when sharing a column in multiple FKs,
       // so we need to delete them after everything is mapped from given level
       for (const prop of targetProps) {
@@ -573,7 +624,8 @@ export abstract class AbstractSqlDriver<
   async nativeInsertMany<T extends object>(entityName: EntityName<T>, data: EntityDictionary<T>[], options: NativeInsertUpdateManyOptions<T> = {}, transform?: (sql: string) => string): Promise<QueryResult<T>> {
     options.processCollections ??= true;
     options.convertCustomTypes ??= true;
-    const meta = this.metadata.get(entityName).root;
+    const entityMeta = this.metadata.get(entityName);
+    const meta = entityMeta.inheritanceType === 'tpt' ? entityMeta : entityMeta.root;
     const collections = options.processCollections ? data.map(d => this.extractManyToMany(meta, d)) : [];
     const pks = this.getPrimaryKeyFields(meta);
     const set = new Set<EntityKey<T>>();
@@ -704,7 +756,9 @@ export abstract class AbstractSqlDriver<
     }
 
     if (meta && this.platform.usesReturningStatement()) {
-      const returningProps = meta.props
+      // For TPT entities, only consider ownProps (columns in this table)
+      const propsToConsider = meta.inheritanceType === 'tpt' && meta.ownProps ? meta.ownProps : meta.props;
+      const returningProps = propsToConsider
         .filter(prop => prop.persist !== false && prop.defaultRaw || prop.autoincrement || prop.generated)
         .filter(prop => !(prop.name in data[0]) || isRaw(data[0][prop.name]));
       const returningFields = Utils.flatten(returningProps.map(prop => prop.fieldNames));
@@ -1300,6 +1354,12 @@ export abstract class AbstractSqlDriver<
     const joinedProps = this.joinedProps(meta, populate, options);
     const populateWhereAll = (options as Dictionary)?._populateWhere === 'all' || Utils.isEmpty((options as Dictionary)?._populateWhere);
 
+    // Ensure TPT joins are applied early so that _tptAlias is available for join resolution
+    // This is needed when populating relations that are inherited from TPT parent entities
+    if (!options.parentJoinPath) {
+      qb.ensureTPTJoins();
+    }
+
     // root entity is already handled, skip that
     if (options.parentJoinPath) {
       // alias all fields in the primary table
@@ -1337,6 +1397,13 @@ export abstract class AbstractSqlDriver<
             : JoinType.leftJoin;
       const schema = prop.targetMeta!.schema === '*' ? options?.schema ?? this.config.get('schema') : prop.targetMeta!.schema;
       qb.join(field, tableAlias, {}, joinType, path, schema);
+
+      // For relations to TPT base classes, add LEFT JOINs for all child tables (polymorphic loading)
+      if (meta2.inheritanceType === 'tpt' && meta2.tptChildren?.length && !ref) {
+        // Use the registry metadata to ensure allTPTDescendants is available
+        const tptMeta = this.metadata.get(meta2.class) as EntityMetadata<T>;
+        this.addTPTPolymorphicJoinsForRelation(qb, tptMeta, tableAlias, fields);
+      }
 
       if (pivotRefJoin) {
         fields.push(
@@ -1381,6 +1448,153 @@ export abstract class AbstractSqlDriver<
     }
 
     return fields;
+  }
+
+  /**
+   * Adds LEFT JOINs and fields for TPT polymorphic loading when populating a relation to a TPT base class.
+   * @internal
+   */
+  protected addTPTPolymorphicJoinsForRelation<T extends object>(
+    qb: QueryBuilder<T, any, any, any>,
+    meta: EntityMetadata<T>,
+    baseAlias: string,
+    fields: Field<T>[],
+  ): void {
+    // allTPTDescendants is pre-computed during discovery, sorted by depth (deepest first)
+    const descendants = meta.allTPTDescendants;
+    if (!descendants?.length) {
+      return;
+    }
+
+    const childAliases: Dictionary<string> = {};
+
+    // LEFT JOIN each descendant table
+    for (const childMeta of descendants) {
+      const childAlias = qb.getNextAlias(childMeta.className);
+      qb.createAlias(childMeta.class, childAlias);
+      childAliases[childMeta.className] = childAlias;
+
+      qb.addPropertyJoin(childMeta.tptInverseProp!, baseAlias, childAlias, JoinType.leftJoin, `[tpt]${meta.className}`);
+
+      // Add fields from this child (only ownProps, skip PKs)
+      for (const prop of (childMeta.ownProps ?? childMeta.props).filter(p => !p.primary && this.platform.shouldHaveColumn(p, []))) {
+        for (const fieldName of prop.fieldNames) {
+          const field = `${childAlias}.${fieldName}`;
+          const fieldAlias = `${childAlias}__${fieldName}`;
+          fields.push(raw(`${this.platform.quoteIdentifier(field)} as ${this.platform.quoteIdentifier(fieldAlias)}`) as Field<T>);
+        }
+      }
+    }
+
+    // Add computed discriminator (descendants already sorted by depth)
+    if (meta.root.tptDiscriminatorColumn) {
+      const cases = descendants.map(child => {
+        const childAlias = childAliases[child.className];
+        const pkFieldName = child.properties[child.primaryKeys[0]].fieldNames[0];
+        return `WHEN ${this.platform.quoteIdentifier(`${childAlias}.${pkFieldName}`)} IS NOT NULL THEN '${child.discriminatorValue}'`;
+      });
+
+      const defaultValue = meta.abstract ? 'NULL' : `'${meta.discriminatorValue}'`;
+      const caseExpr = `CASE ${cases.join(' ')} ELSE ${defaultValue} END`;
+      const aliased = this.platform.quoteIdentifier(`${baseAlias}__${meta.root.tptDiscriminatorColumn}`);
+      fields.push(raw(`${caseExpr} as ${aliased}`) as Field<T>);
+    }
+  }
+
+  /**
+   * Find the alias for a TPT child table in the query builder.
+   * @internal
+   */
+  protected findTPTChildAlias<T extends object>(qb: QueryBuilder<T, any, any, any>, childMeta: EntityMetadata): string | undefined {
+    const joins = (qb as any)._joins as Dictionary;
+    for (const key of Object.keys(joins)) {
+      if (joins[key].table === childMeta.tableName && key.includes('[tpt]')) {
+        return joins[key].alias;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Maps TPT child-specific fields during hydration.
+   * When a relation points to a TPT base class, the actual entity might be a child class.
+   * This method reads the discriminator to determine the concrete type and maps child-specific fields.
+   * @internal
+   */
+  protected mapTPTChildFields<T extends object>(
+    relationPojo: EntityData<T>,
+    meta: EntityMetadata<T>,
+    relationAlias: string,
+    qb: QueryBuilder<T, any, any, any>,
+    root: EntityData<T>,
+  ): void {
+    // Check if this is a TPT base with polymorphic children
+    if (meta.inheritanceType !== 'tpt' || !meta.root.tptDiscriminatorColumn) {
+      return;
+    }
+
+    // Read the discriminator value
+    const discriminatorAlias = `${relationAlias}__${meta.root.tptDiscriminatorColumn}` as EntityKey<T>;
+    const discriminatorValue = root[discriminatorAlias] as string;
+
+    if (!discriminatorValue) {
+      return;
+    }
+
+    // Set the discriminator in the pojo for EntityFactory
+    relationPojo[meta.root.tptDiscriminatorColumn as EntityKey<T>] = discriminatorValue as EntityDataValue<T>;
+
+    // Find the concrete metadata from discriminator map
+    const concreteClass = meta.root.discriminatorMap?.[discriminatorValue];
+    if (!concreteClass) {
+      return;
+    }
+
+    const concreteMeta = this.metadata.get(concreteClass);
+    if (concreteMeta === meta) {
+      // Already the concrete type, no child fields to map
+      delete root[discriminatorAlias];
+      return;
+    }
+
+    // Traverse up from concrete type and map fields from each level's table
+    const tz = this.platform.getTimezone();
+    let currentMeta: EntityMetadata | undefined = concreteMeta;
+
+    while (currentMeta && currentMeta !== meta) {
+      const childAlias = this.findTPTChildAlias(qb, currentMeta);
+
+      if (childAlias) {
+        // Map fields using same filtering as joined loading, plus skip PKs
+        const props = (currentMeta.ownProps ?? []).filter(p => !p.primary && this.platform.shouldHaveColumn(p, []));
+
+        for (const prop of props) {
+          const alias = `${childAlias}__${prop.fieldNames[0]}` as EntityKey<T>;
+          const value = root[alias];
+
+          if (value !== undefined) {
+            // Date handling (same as mapJoinedProps)
+            if (prop.runtimeType === 'Date') {
+              if (tz && tz !== 'local' && typeof value === 'string' && !(value as string).includes('+') && (value as string).lastIndexOf('-') < 11 && !(value as string).endsWith('Z')) {
+                relationPojo[prop.name as EntityKey<T>] = this.platform.parseDate(value + tz) as EntityDataValue<T>;
+              } else if (['string', 'number'].includes(typeof value)) {
+                relationPojo[prop.name as EntityKey<T>] = this.platform.parseDate(value as string) as EntityDataValue<T>;
+              } else {
+                relationPojo[prop.name as EntityKey<T>] = value as EntityDataValue<T>;
+              }
+            } else {
+              relationPojo[prop.name as EntityKey<T>] = value as EntityDataValue<T>;
+            }
+            delete root[alias];
+          }
+        }
+      }
+
+      currentMeta = currentMeta.tptParent;
+    }
+
+    // Clean up the discriminator alias
+    delete root[discriminatorAlias];
   }
 
   /**

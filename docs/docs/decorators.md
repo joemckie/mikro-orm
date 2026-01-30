@@ -17,6 +17,7 @@ title: Decorators
 | `collection`          | `string`                 | yes      | Alias for `tableName`.                                                             |
 | `comment`             | `string`                 | yes      | Specify comment to table. **(SQL only)**                                           |
 | `repository`          | `() => EntityRepository` | yes      | Set [custom repository class](./repositories.md#custom-repository).                |
+| `inheritance`         | `'tpt'`                  | yes      | For [Table-Per-Type Inheritance](./inheritance-mapping.md#table-per-type-inheritance-tpt). |
 | `discriminatorColumn` | `string`                 | yes      | For [Single Table Inheritance](./inheritance-mapping.md#single-table-inheritance). |
 | `discriminatorMap`    | `Dictionary<string>`     | yes      | For [Single Table Inheritance](./inheritance-mapping.md#single-table-inheritance). |
 | `discriminatorValue`  | `number` &#124; `string` | yes      | For [Single Table Inheritance](./inheritance-mapping.md#single-table-inheritance). |

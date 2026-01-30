@@ -398,14 +398,23 @@ export class EntityFactory {
   }
 
   private processDiscriminatorColumn<T extends object>(meta: EntityMetadata<T>, data: EntityData<T>): EntityMetadata<T> {
-    if (!meta.root.discriminatorColumn) {
+    // Handle STI discriminator (persisted column)
+    if (meta.root.discriminatorColumn) {
+      const prop = meta.properties[meta.root.discriminatorColumn as EntityKey<T>];
+      const value = data[prop.name] as string;
+      const type = meta.root.discriminatorMap![value];
+      meta = type ? this.metadata.get(type) : meta;
       return meta;
     }
 
-    const prop = meta.properties[meta.root.discriminatorColumn as EntityKey<T>];
-    const value = data[prop.name] as string;
-    const type = meta.root.discriminatorMap![value];
-    meta = type ? this.metadata.get(type) : meta;
+    // Handle TPT discriminator (computed at query time)
+    if (meta.root.tptDiscriminatorColumn && meta.root.discriminatorMap) {
+      const value = data[meta.root.tptDiscriminatorColumn as EntityKey<T>] as string;
+      if (value) {
+        const type = meta.root.discriminatorMap[value];
+        meta = type ? this.metadata.get(type) : meta;
+      }
+    }
 
     return meta;
   }

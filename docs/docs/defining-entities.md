@@ -1940,7 +1940,10 @@ Starting with MikroORM 4.2, there is no limitation for entity file names. It is 
 
 ## Using custom base entity
 
-We can define our own base entity with properties that are required on all entities, like primary key and created/updated time. Single table inheritance is also supported.
+We can define our own base entity with properties that are required on all entities, like primary key and created/updated time. MikroORM supports two inheritance mapping strategies:
+
+- **Single Table Inheritance (STI)** - All entities in the hierarchy share a single table with a discriminator column
+- **Table-Per-Type Inheritance (TPT)** - Each entity has its own table with foreign keys linking child tables to parent tables
 
 Read more about this topic in [Inheritance Mapping](./inheritance-mapping.md) section.
 

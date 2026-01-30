@@ -3,6 +3,7 @@ import type {
   Dictionary,
   EntityClass,
   EntityData,
+  EntityDictionary,
   EntityKey,
   EntityMetadata,
   EntityName,
@@ -701,7 +702,65 @@ export class UnitOfWork {
     const changeSet = this.changeSetComputer.computeChangeSet(entity);
 
     if (changeSet && !this.checkUniqueProps(changeSet)) {
-      this.changeSets.set(entity, changeSet);
+      // For TPT child entities, create changesets for each table in hierarchy
+      if (wrapped.__meta.inheritanceType === 'tpt' && wrapped.__meta.tptParent) {
+        this.createTPTChangeSets(entity, changeSet);
+      } else {
+        this.changeSets.set(entity, changeSet);
+      }
+    }
+  }
+
+  /**
+   * For TPT inheritance, creates separate changesets for each table in the hierarchy.
+   * Uses the same entity instance for all changesets - only the metadata and payload differ.
+   */
+  private createTPTChangeSets<T extends object>(entity: T, originalChangeSet: ChangeSet<T>): void {
+    const meta = helper(entity).__meta;
+    const isCreate = originalChangeSet.type === ChangeSetType.CREATE;
+    let current: EntityMetadata | undefined = meta;
+
+    // Walk up the hierarchy creating changesets for each table
+    while (current) {
+      const isRoot = !current.tptParent;
+      const payload: Dictionary = {};
+
+      // Include only properties owned by this table
+      for (const prop of current.ownProps ?? current.props) {
+        if (prop.name in originalChangeSet.payload) {
+          payload[prop.name] = (originalChangeSet.payload as Dictionary)[prop.name];
+        }
+      }
+
+      // For CREATE on non-root tables, include the PK reference (EntityIdentifier for deferred resolution)
+      if (isCreate && !isRoot) {
+        const wrapped = helper(entity);
+        // Use the entity's EntityIdentifier which will be resolved after root table INSERT
+        const identifier = wrapped.__identifier;
+        const identifiers = Array.isArray(identifier) ? identifier : [identifier];
+        for (let i = 0; i < current.primaryKeys.length; i++) {
+          const pk = current.primaryKeys[i];
+          // Use EntityIdentifier if available, otherwise use the value from payload
+          payload[pk] = identifiers[i] ?? (originalChangeSet.payload as Dictionary)[pk];
+        }
+      }
+
+      // For UPDATE, skip tables with no changed properties
+      if (!isCreate && Object.keys(payload).length === 0) {
+        current = current.tptParent;
+        continue;
+      }
+
+      const cs = new ChangeSet(entity, originalChangeSet.type, payload as EntityDictionary<T>, current as EntityMetadata<T>);
+      if (current === meta) {
+        cs.originalEntity = originalChangeSet.originalEntity;
+      }
+
+      // Use a unique key for each table's changeset
+      const key = current === meta ? entity : { __tptTable: current, __entity: entity };
+      this.changeSets.set(key as any, cs);
+
+      current = current.tptParent;
     }
   }
 
@@ -1088,9 +1147,40 @@ export class UnitOfWork {
 
           return false;
         });
+        continue;
       }
 
-      const cs = this.changeSets.get(Reference.unwrapReference(ref));
+      const refEntity = Reference.unwrapReference(ref);
+
+      // For mapToPk properties, the value is a primitive (string/array), not an entity
+      if (!Utils.isEntity(refEntity)) {
+        const cs = this.changeSets.get(refEntity);
+        const isScheduledForInsert = cs?.type === ChangeSetType.CREATE && !cs.persisted;
+        if (isScheduledForInsert) {
+          this.scheduleExtraUpdate(changeSet, [prop]);
+        }
+        continue;
+      }
+
+      const refMeta = helper(refEntity).__meta;
+
+      // For TPT entities, check if the ROOT table's changeset has been persisted
+      // (since the FK is to the root table, not the concrete entity's table)
+      let cs = this.changeSets.get(refEntity);
+      if (refMeta?.inheritanceType === 'tpt' && refMeta.tptParent) {
+        // Find the root meta
+        let rootMeta = refMeta;
+        while (rootMeta.tptParent) {
+          rootMeta = rootMeta.tptParent;
+        }
+        // Look up the root table's changeset by iterating (Map uses reference equality for object keys)
+        for (const [key, csCandidate] of this.changeSets) {
+          if ((key as any).__tptTable === rootMeta && (key as any).__entity === refEntity) {
+            cs = csCandidate;
+            break;
+          }
+        }
+      }
       const isScheduledForInsert = cs?.type === ChangeSetType.CREATE && !cs.persisted;
 
       if (isScheduledForInsert) {
@@ -1246,11 +1336,14 @@ export class UnitOfWork {
 
     for (const cs of this.changeSets.values()) {
       const group = groups[cs.type];
-      const classGroup = group.get(cs.rootMeta) ?? [];
+      // For TPT entities, group by the changeset's own meta (each table has its own group)
+      // For non-TPT, use rootMeta as before
+      const groupKey = cs.meta.inheritanceType === 'tpt' ? cs.meta : cs.rootMeta;
+      const classGroup = group.get(groupKey) ?? [];
       classGroup.push(cs);
 
-      if (!group.has(cs.rootMeta)) {
-        group.set(cs.rootMeta, classGroup);
+      if (!group.has(groupKey)) {
+        group.set(groupKey, classGroup);
       }
     }
 
@@ -1260,12 +1353,29 @@ export class UnitOfWork {
   private getCommitOrder(): EntityMetadata[] {
     const calc = new CommitOrderCalculator();
     const set = new Set<EntityMetadata>();
-    this.changeSets.forEach(cs => set.add(cs.rootMeta));
+
+    // For TPT entities, use the changeset's own meta (each table has its own meta)
+    // For non-TPT, use rootMeta as before
+    this.changeSets.forEach(cs => {
+      if (cs.meta.inheritanceType === 'tpt') {
+        set.add(cs.meta);
+      } else {
+        set.add(cs.rootMeta);
+      }
+    });
+
     set.forEach(meta => calc.addNode(meta._id));
 
     for (const meta of set) {
+      // Add regular relation dependencies
       for (const prop of meta.relations) {
         calc.discoverProperty(prop, meta._id);
+      }
+
+      // For TPT, parent table must be inserted BEFORE child tables
+      // addDependency(from, to) means "from" gets processed AFTER "to" in the final order
+      if (meta.inheritanceType === 'tpt' && meta.tptParent && set.has(meta.tptParent)) {
+        calc.addDependency(meta.tptParent._id, meta._id, 1);
       }
     }
 

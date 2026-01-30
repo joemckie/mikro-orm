@@ -838,9 +838,9 @@ export class EntityMetadata<Entity = any, Class extends EntityCtor<Entity> = Ent
     }
 
     this.definedProperties = this.trackingProps.reduce((o, prop) => {
-      const isReference = (prop.inversedBy || prop.mappedBy) && !prop.mapToPk;
+      const hasInverse = (prop.inversedBy || prop.mappedBy) && !prop.mapToPk;
 
-      if (isReference) {
+      if (hasInverse) {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const meta = this;
         o[prop.name] = {
@@ -865,6 +865,18 @@ export class EntityMetadata<Entity = any, Class extends EntityCtor<Entity> = Ent
             }
 
             EntityHelper.propagate(meta, entity, this, prop, Reference.unwrapReference(val), old);
+          },
+          enumerable: true,
+          configurable: true,
+        };
+      } else {
+        // For relations without inverse, still need getter+setter for proper property access
+        o[prop.name] = {
+          get() {
+            return this.__helper.__data[prop.name];
+          },
+          set(val: AnyEntity) {
+            this.__helper.__data[prop.name] = Reference.wrapReference(val, prop as EntityProperty);
           },
           enumerable: true,
           configurable: true,
@@ -982,6 +994,22 @@ export interface EntityMetadata<Entity = any, Class extends EntityCtor<Entity> =
   polymorphs?: EntityMetadata[];
   root: EntityMetadata<Entity>;
   definedProperties: Dictionary;
+  /** Inheritance type: 'sti' (Single Table Inheritance) or 'tpt' (Table-Per-Type). Only set on root entities. */
+  inheritanceType?: 'sti' | 'tpt';
+  /** For TPT: direct parent entity metadata (the entity this one extends). */
+  tptParent?: EntityMetadata;
+  /** For TPT: direct child entities (entities that extend this one). */
+  tptChildren?: EntityMetadata[];
+  /** For TPT: all non-abstract descendants, sorted by depth (deepest first). Precomputed during discovery. */
+  allTPTDescendants?: EntityMetadata[];
+  /** For TPT: synthetic property representing the join to the parent table (child PK → parent PK). */
+  tptParentProp?: EntityProperty;
+  /** For TPT: inverse of tptParentProp, used for joining from parent to child (parent PK → child PK). */
+  tptInverseProp?: EntityProperty;
+  /** For TPT: virtual discriminator property name (computed at query time, not persisted). */
+  tptDiscriminatorColumn?: string;
+  /** For TPT: properties defined only in THIS entity (not inherited from parent). */
+  ownProps?: EntityProperty<Entity>[];
   // used to make ORM aware of externally defined triggers, can change resulting SQL in some condition like when inserting in mssql
   hasTriggers?: boolean;
   /** @internal can be used for computed numeric cache keys */
